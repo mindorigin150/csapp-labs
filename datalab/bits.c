@@ -187,6 +187,10 @@ int allOddBits(int x)
   // 0xAAAAAAAA 表示所有 odd 位置上都是1的数
   // 只要 x != 0xAAAAAAAA，那么 x ^ 0xAAAAAAAA 结果就非0
   // 注意题目只要求 odd numbers ，而对 even numbers 没有要求，所以先用 x & 0xAAAAAAAA 只保留这些位置上的
+  // 注意不能直接使用超过 255 位的常量！
+  int mask = 0xAA;
+  mask = mask | (mask << 8);  // mask = 0xAAAA
+  mask = mask | (mask << 16); // mask = 0xAAAAAAAA
   return !((x & 0xAAAAAAAA) ^ 0xAAAAAAAA);
 }
 /*
