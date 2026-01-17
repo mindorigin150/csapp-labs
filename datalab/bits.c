@@ -153,7 +153,7 @@ int bitXor(int x, int y)
  */
 int tmin(void)
 {
-  return (-1 << 31);
+  return (1 << 31);
 }
 // 2
 /*
@@ -169,7 +169,10 @@ int isTmax(int x)
   // A ^ B 只要有位置上不同，结果的某些位上就会有1
   // ! 表示把这个数看作一个整体，如果不为0就是1
   // 1 << 31 表示 Tmax
-  return !(x ^ ~(1 << 31));
+  // IMPORTANT: 注意这里不准用移位
+  // 利用 Tmax + 1 取反等于自身
+  // 但是 +1 取反等于自身的还有 -1, 通过判断 (x+1) 后有没有1来排除
+  return !(~(x + 1) ^ x) & !!(x + 1);
 }
 /*
  * allOddBits - return 1 if all odd-numbered bits in word set to 1
