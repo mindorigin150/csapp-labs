@@ -153,8 +153,7 @@ int bitXor(int x, int y)
  */
 int tmin(void)
 {
-
-  return 2;
+  return (-1 << 31);
 }
 // 2
 /*
@@ -166,7 +165,10 @@ int tmin(void)
  */
 int isTmax(int x)
 {
-  return 2;
+  // A ^ B 只要有位置上不同，结果的某些位上就会有1
+  // ! 表示把这个数看作一个整体，如果不为0就是1
+  // 1 << 31 表示 Tmax
+  return !(x ^ (1 << 31));
 }
 /*
  * allOddBits - return 1 if all odd-numbered bits in word set to 1
@@ -178,7 +180,10 @@ int isTmax(int x)
  */
 int allOddBits(int x)
 {
-  return 2;
+  // 0xAAAAAAAA 表示所有 odd 位置上都是1的数
+  // 只要 x != 0xAAAAAAAA，那么 x ^ 0xAAAAAAAA 结果就非0
+  // 注意题目只要求 odd numbers ，而对 even numbers 没有要求，所以先用 x & 0xAAAAAAAA 只保留这些位置上的
+  return !((x & 0xAAAAAAAA) ^ 0xAAAAAAAA);
 }
 /*
  * negate - return -x
@@ -189,7 +194,8 @@ int allOddBits(int x)
  */
 int negate(int x)
 {
-  return 2;
+  // -x = x按位取反 + 1
+  return ~x + 1;
 }
 // 3
 /*
@@ -203,7 +209,13 @@ int negate(int x)
  */
 int isAsciiDigit(int x)
 {
-  return 2;
+  // acsii digit: 只有最低8位表示数字，高位都是0
+  // 涉及到跟某个数比较：移位变成跟0比 -> 相减变成取反+1，跟0比较利用移位比较最高位符号位
+  // 翻译一下就是满足三个条件：
+  // 1. x >= 0x30 -> x - 0x30 >= 0 -> (x+~0x30+1) >= 0 -> ((x+~0x30+1) >> 31) == 0
+  // 2. x <= 0x39 -> ((x+~0x3A+1) >> 31) == 1
+  // 3. (x >> 8) == 0
+  return (!((x + ~0x30 + 1) >> 31)) & ((x + ~0x3A + 1) >> 31) & (!(x >> 8));
 }
 /*
  * conditional - same as x ? y : z
@@ -214,7 +226,16 @@ int isAsciiDigit(int x)
  */
 int conditional(int x, int y, int z)
 {
-  return 2;
+  // 翻译一下：
+  // 1. x 作为 condition
+  // 2. 关键在于构造 mask: 利用移位:
+  //    0xFFFFFFFF: ~1 + 1
+  //    0x00000000: ~mask
+
+  // mask = ~!!x + 1, 注意这里使用 !!x 而不是 x 的原因是 x 可能是任意值，而这里只希望其非0即1
+  // (y & (mask)) | (z & (~mask)), mask 是由 condition 拓展而来
+  int mask = (!!x << 31) >> 31;
+  return (y & mask) | (z & ~mask);
 }
 /*
  * isLessOrEqual - if x <= y  then return 1, else return 0
@@ -225,7 +246,15 @@ int conditional(int x, int y, int z)
  */
 int isLessOrEqual(int x, int y)
 {
-  return 2;
+  // 注意，这里要考虑溢出问题！如果 x 和 y 符号不同相减容易溢出，但是直接判断很方便
+  // x <= y -> y - x >= 0 -> y + ~x + 1 >= 0
+  int flag_x = x >> 31;
+  int flag_y = y >> 31;
+  int mask = flag_x ^ flag_y;
+  // mask 全1: flag_x, 1表示负数，也就更小; else: flag_2
+  int flag_2 = (y + ~x + 1) >> 31;
+  // flag_x ^ flag_y 全1时表示不同符号，全0表示同号， flag 起作用
+  return !!((~mask & ~flag_2) | (mask & flag_x));
 }
 // 4
 /*
@@ -238,7 +267,11 @@ int isLessOrEqual(int x, int y)
  */
 int logicalNeg(int x)
 {
-  return 2;
+  // 1. 计算 ~x + 1
+  // 2. 关键： x | (~x + 1) 可以只留下符号位
+  // 3. >> 31 只保留符号位，此时为 0 / -1 ，将其转换为 1 / 0
+  int flag = x | (~x + 1);
+  return (flag >> 31) + 1;
 }
 /* howManyBits - return the minimum number of bits required to represent x in
  *             two's complement
