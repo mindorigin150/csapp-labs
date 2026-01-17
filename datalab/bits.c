@@ -191,7 +191,7 @@ int allOddBits(int x)
   int mask = 0xAA;
   mask = mask | (mask << 8);  // mask = 0xAAAA
   mask = mask | (mask << 16); // mask = 0xAAAAAAAA
-  return !((x & 0xAAAAAAAA) ^ 0xAAAAAAAA);
+  return !((x & mask) ^ mask);
 }
 /*
  * negate - return -x
