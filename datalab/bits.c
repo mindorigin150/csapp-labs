@@ -382,6 +382,7 @@ int floatFloat2Int(unsigned uf)
   int exp = sign_exp & 0xff;
   int E = exp - 127;
   int frac = uf - (sign_exp << 23);
+  int num;
 
   // 1. 如果 E < 0, 表示原来这个数字就 < 1，转换为 int 后直接返回0
   if (E < 0)
@@ -397,7 +398,7 @@ int floatFloat2Int(unsigned uf)
 
   // 3. 需要判断 E 与 23 大小，因为涉及到是左移还是右移；
   // 加上 1 在最前面
-  int num = frac + (1 << 23);
+  num = frac + (1 << 23);
   if (E < 23)
   {
     num = num >> (23 - E);
