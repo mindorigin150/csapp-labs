@@ -165,10 +165,11 @@ int tmin(void)
  */
 int isTmax(int x)
 {
+  // Tmax: ~(1 << 31)
   // A ^ B 只要有位置上不同，结果的某些位上就会有1
   // ! 表示把这个数看作一个整体，如果不为0就是1
   // 1 << 31 表示 Tmax
-  return !(x ^ (1 << 31));
+  return !(x ^ ~(1 << 31));
 }
 /*
  * allOddBits - return 1 if all odd-numbered bits in word set to 1
@@ -349,7 +350,27 @@ int howManyBits(int x)
  */
 unsigned floatScale2(unsigned uf)
 {
-  return 2;
+  // float: 1 + 8 + 23 = sign + exp + frac
+
+  // for normalized (exp != 0)
+  // 1. 使用 移位 + 0xff mask 只保留 exp 部分
+  // 2. 如果 exp 部分全 1 则溢出
+  // 3. 否则 exp 部分直接 + 1
+  // IMPORTANT: for denormalized!!!
+  int sign_exp = uf >> 23;
+  int exp = sign_exp & 0xff;
+  int frac = uf - (sign_exp << 23);
+  // for nan or infinity
+  if (exp == 0xff)
+  {
+    return uf;
+  }
+  // for denormalized
+  else if (!exp)
+  {
+    return (sign_exp << 23) + (frac << 1);
+  }
+  return uf + (1 << 23);
 }
 /*
  * floatFloat2Int - Return bit-level equivalent of expression (int) f
@@ -365,7 +386,42 @@ unsigned floatScale2(unsigned uf)
  */
 int floatFloat2Int(unsigned uf)
 {
-  return 2;
+  // 注意： E = exp - bias!!
+  int sign = (uf >> 31) & 1;
+  int sign_exp = uf >> 23;
+  int exp = sign_exp & 0xff;
+  int E = exp - 127;
+  int frac = uf - (sign_exp << 23);
+
+  // 1. 如果 E < 0, 表示原来这个数字就 < 1，转换为 int 后直接返回0
+  if (E < 0)
+  {
+    return 0;
+  }
+
+  // 2. 溢出：大于 int 能表示的最大范围，即 2^31 - 1
+  if (E >= 31)
+  {
+    return 0x80000000;
+  }
+
+  // 3. 需要判断 E 与 23 大小，因为涉及到是左移还是右移；
+  // 加上 1 在最前面
+  int num = frac + (1 << 23);
+  if (E < 23)
+  {
+    num = num >> (23 - E);
+  }
+  else
+  {
+    num = num << (E - 23);
+  }
+
+  if (sign)
+  {
+    return -num;
+  }
+  return num;
 }
 /*
  * floatPower2 - Return bit-level equivalent of the expression 2.0^x
@@ -382,5 +438,26 @@ int floatFloat2Int(unsigned uf)
  */
 unsigned floatPower2(int x)
 {
-  return 2;
+  // 1. if too small, return 0
+  // too small: x < -127
+  if (x < -127)
+  {
+    return 0;
+  }
+
+  // 2. if too large, return +inf (0 1111 1111 00000000000000) (0x7F800000)
+  // too large: x > 128
+  if (x > 128)
+  {
+    return 0x7f800000;
+  }
+
+  // 3. denorm: x == -127, exp = x + 127 == 0
+  if (x == -127)
+  {
+    return 1;
+  }
+
+  // 4. norm
+  return (x + 127) << 23;
 }
