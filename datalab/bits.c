@@ -301,47 +301,30 @@ int howManyBits(int x)
   // 搜索方法：二分
   // 注意每次搜索完后，如果有东西要移位！
 
-  // 判断是否是负数
-  int sign = x >> 31;
+  int b16, b8, b4, b2, b1, b0, sign;
+
+  // 判断是否是负数，如果是负数按位取反
+  sign = x >> 31;
   x = (~x & sign) | (x & ~sign);
 
-  int num_bits = 0;
-  int b16, b8, b4, b2, b1, b0;
   // if x & 1111 1111 0000 0000 is true: num_bits += 8 (0xFF00FF00)
   // if x & 1111 0000 1111 0000 is true: num_bits += 4 (0xF0F0F0F0)
   // if x & 1100 1100 1100 1100 is true: num_bits += 2 (0xCCCCCCCC)
   // if x & 1010 1010 1010 1010 is true: num_bits += 1 (0xAAAAAAAA)
-  int condition_16 = x & 0xffff0000;
-  int mask_16 = (!!condition_16 << 31) >> 31;
-  b16 = (16 & mask_16) | (0 & ~mask_16);
+
+  // 二分查找最高位的 1
+  b16 = (!!(x >> 16)) << 4;
   x = x >> b16;
-
-  int condition_8 = x & 0xff00ff00;
-  int mask_8 = (!!condition_8 << 31) >> 31;
-  b8 = (8 & mask_8) | (0 & ~mask_8);
+  b8 = (!!(x >> 8)) << 3;
   x = x >> b8;
-
-  int condition_4 = x & 0xf0f0f0f0;
-  int mask_4 = (!!condition_4 << 31) >> 31;
-  b4 = (4 & mask_4) | (0 & ~mask_4);
+  b4 = (!!(x >> 4)) << 2;
   x = x >> b4;
-
-  int condition_2 = x & 0xcccccccc;
-  int mask_2 = (!!condition_2 << 31) >> 31;
-  b2 = (2 & mask_2) | (0 & ~mask_2);
+  b2 = (!!(x >> 2)) << 1;
   x = x >> b2;
-
-  int condition_1 = x & 0xaaaaaaaa;
-  int mask_1 = (!!condition_1 << 31) >> 31;
-  b1 = (1 & mask_1) | (0 & ~mask_1);
+  b1 = (!!(x >> 1));
   x = x >> b1;
-
-  int condition_0 = x & 0xffffffff;
-  int mask_0 = (!!condition_0 << 31) >> 31;
-  b0 = (1 & mask_0) | (0 & ~mask_0);
-
-  num_bits = b16 + b8 + b4 + b2 + b1 + b0 + 1;
-  return num_bits;
+  b0 = x;
+  return b16 + b8 + b4 + b2 + b1 + b0 + 1;
 }
 // float
 /*
