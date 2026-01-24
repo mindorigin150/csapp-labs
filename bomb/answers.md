@@ -118,3 +118,27 @@ call 0x401388
 - 综上， phase 4 输入是 7 0
 
 6. 
+- `mov %fs:0x28, %rax` ： stack canary!
+- `xor %rax, %rax` 和 `mov $0, %rax` 一样，都可以将某个寄存器的值置0；
+- `cmp $0x6, %eax` 表明 string length 必须为6，否则会直接爆炸；
+    
+    注意 `string_length` 函数不包括 `\0`
+
+- `movzbl`: mov + zero-extend + byte + long: 从源地址取一个字节，把它放到一个 32 位寄存器中，并把剩下的 24 位全补0
+- `movbzl (%rbx, %rax, 1), %ecx` ：取你输入字符串的第 n 个字符，放入 `%ecx` 中，高位清零
+
+- 从 `0x40108b` 到 `0x4010ac` 是一个典型的 loop ， `for(i = 0; i < 6; i++)` ；然后执行的操作是：从输入的6个字符中取出一个，然后将其与 `0xf` 做 `and` ，也就是取低4位；然后用低4位对应的索引去 `0x4024b` 地址查表，把返回值放到一个新的数组中；
+
+- 在 `0x4010bd` 这里调用了 `strings_not_equal` 函数，所以自然而然使用 `x/s 0x40245e` 查看需要输入的字符串，结果：
+
+    ```bash
+    flyers
+    ```
+- 使用 `x/s 0x4024b0` 查看密码表：
+
+    ```bash
+    maduiersnfotvbylSo you think you can stop the bomb with ctrl-c, do you?
+    ```
+    
+    对应的索引是： 9, 15, 14, 5, 6, 7
+- 查 acsii ，找低 4 位是这个索引的即可；比如： `ionefg`
