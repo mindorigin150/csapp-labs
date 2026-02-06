@@ -1,3 +1,7 @@
+/*
+Takes a valgrind memory traces as input, simulates hit/miss beharior of a cache memory on this trace, and outputs the total number of hits, misses, and evictions
+*/
+
 #include "cachelab.h"
 #include <getopt.h>
 #include <stdlib.h>
@@ -8,6 +12,7 @@ typedef struct
 {
     bool valid;
     long tag;
+    long counter;
 } cache_line;
 
 /*
@@ -66,15 +71,46 @@ int main(int argc, char *argv[])
     // store type of operation, like 'L', 'S', 'M'
     char identifier;
     // store memory adress
-    unsigned address;
+    unsigned long address;
     // store size of accessed memory
     int size;
+    // indicate the current time; increment at the end of each loop
+    long global_counter = 0;
+    int num_hits = 0, num_misses = 0, num_evictions = 0;
 
-    while (fscanf(pFILE, "%c %x,%d", &identifier, &address, &size) > 0)
+    while (fscanf(pFILE, " %c %lx,%d", &identifier, &address, &size) > 0) // Add a space before %c to consume the newline character
     {
+        printf("[DEBUG] global_counter: %ld\n", global_counter);
+
+        // get tag, set and block_offset of this address
+        long tag = address >> (s + b);
+        long set_idx = (address >> b) & ((1 << s) - 1);
+        printf("[DEBUG] address: %lx\n", address);
+        printf("[DEBUG] tag: %ld\n", tag);
+        printf("[DEBUG] set_idx: %ld\n", set_idx);
+
+        if (identifier == 'L')
+        {
+        }
+        else if (identifier == 'S')
+        {
+        }
+        else if (identifier == 'M')
+        {
+        }
+        else
+        {
+            fprintf(stderr, "Error: invalid identifier: %c\n", identifier);
+        }
+
+        global_counter++;
     }
 
+    // close file and free memory
     fclose(pFILE);
+    cache_del(S, cache);
+
+    printSummary(num_hits, num_misses, num_evictions);
 
     return 0;
 }
@@ -98,6 +134,7 @@ cache_line **cache_init(int S, int E)
         {
             cache[i][j].valid = false;
             cache[i][j].tag = 0;
+            cache[i][j].counter = 0;
         }
     }
     return cache;
