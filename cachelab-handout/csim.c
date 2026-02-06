@@ -7,6 +7,7 @@ Takes a valgrind memory traces as input, simulates hit/miss beharior of a cache 
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdbool.h>
+#include <string.h>
 
 typedef struct
 {
@@ -15,15 +16,55 @@ typedef struct
     long counter;
 } cache_line;
 
+typedef struct
+{
+    cache_line **sets;
+    int S;
+    int E;
+    int B; // # bytes / block
+    int num_hits;
+    int num_misses;
+    int num_evictions;
+} Cache;
+
 /*
 Use this function to init cache
 return NULL if allocation fails.
 */
-cache_line **cache_init(int S, int E);
+Cache *cache_init(int S, int E, int b);
 /*
 Use this function to delet cache.
 */
-void cache_del(int S, cache_line **cache);
+void cache_del(Cache *cache);
+/**
+ * Load from cache.
+ * There are 3 possibilities:
+ * - 1 hit
+ * - 1 miss, 0 eviction
+ * - 1 miss, 1 eviction
+ */
+void load_cache(unsigned long tag, unsigned long set_idx, unsigned long block_offset, int size, unsigned long global_counter, Cache *cache); // TODO
+/**
+ * Store into cache.
+ * There are 3 possibilities:
+ * - 1 hit
+ * - 1 miss, 0 eviction
+ * - 1 miss, 1 eviction
+ */
+void store_cache(unsigned long tag, unsigned long set_idx, unsigned long block_offset, int size, unsigned long global_counter, Cache *cache); // TODO
+/**
+ * Modify cache.
+ * 1 load + 1 store, but after loadting, the store operation must hit.
+ * There are 3 possibilities:
+ * - 2 hit
+ * - 1 miss, 0 eviction, 1 hit
+ * - 1 miss, 1 eviction, 1 hit
+ */
+void modify_cache(unsigned long tag, unsigned long set_idx, unsigned long block_offset, int size, unsigned long global_counter, Cache *cache); // TODO
+/**
+ * A simple access function
+ */
+void access_cache(unsigned long tag, unsigned long set_idx, unsigned long block_offset, int size, unsigned long global_counter, Cache *cache);
 
 int main(int argc, char *argv[])
 {
@@ -52,12 +93,9 @@ int main(int argc, char *argv[])
         }
     }
 
-    // For Debug
-    printf("[DEBUG]:\ns: %d\nE: %d\nb: %d\ntracefile: %s\n", s, E, b, t);
-
     // Allocate cache memory
     int S = 1 << s; // S = 2^s
-    cache_line **cache = cache_init(S, E);
+    Cache *cache = cache_init(S, E, b);
 
     // Open the file
     FILE *pFILE = fopen(t, "r");
@@ -75,28 +113,27 @@ int main(int argc, char *argv[])
     // store size of accessed memory
     int size;
     // indicate the current time; increment at the end of each loop
-    long global_counter = 0;
-    int num_hits = 0, num_misses = 0, num_evictions = 0;
+    unsigned long global_counter = 0;
 
     while (fscanf(pFILE, " %c %lx,%d", &identifier, &address, &size) > 0) // Add a space before %c to consume the newline character
     {
-        printf("[DEBUG] global_counter: %ld\n", global_counter);
-
         // get tag, set and block_offset of this address
-        long tag = address >> (s + b);
-        long set_idx = (address >> b) & ((1 << s) - 1);
-        printf("[DEBUG] address: %lx\n", address);
-        printf("[DEBUG] tag: %ld\n", tag);
-        printf("[DEBUG] set_idx: %ld\n", set_idx);
+        unsigned long tag = address >> (s + b);
+        unsigned long set_idx = (address >> b) & ((1 << s) - 1);
+        unsigned long block_offset = address & ((1 << b) - 1);
 
         if (identifier == 'L')
         {
+            access_cache(tag, set_idx, block_offset, size, global_counter, cache);
         }
         else if (identifier == 'S')
         {
+            access_cache(tag, set_idx, block_offset, size, global_counter, cache);
         }
         else if (identifier == 'M')
         {
+            access_cache(tag, set_idx, block_offset, size, global_counter, cache);
+            access_cache(tag, set_idx, block_offset, size, global_counter, cache);
         }
         else
         {
@@ -108,43 +145,108 @@ int main(int argc, char *argv[])
 
     // close file and free memory
     fclose(pFILE);
-    cache_del(S, cache);
+    cache_del(cache);
 
-    printSummary(num_hits, num_misses, num_evictions);
+    printSummary(cache->num_hits, cache->num_misses, cache->num_evictions);
 
     return 0;
 }
 
-cache_line **cache_init(int S, int E)
+Cache *cache_init(int S, int E, int b)
 {
-    cache_line **cache = malloc(S * sizeof(cache_line *));
-    if (cache == NULL)
-        return NULL;
-    for (int s = 0; s < S; s++)
-    {
-        cache[s] = malloc(E * sizeof(cache_line));
-    }
+    // allocate space for cache
+    Cache *cache = malloc(sizeof(Cache));
     if (cache == NULL)
         return NULL;
 
+    cache->sets = malloc(S * sizeof(cache_line *));
+    if (cache->sets == NULL)
+        return NULL;
+
+    for (int s = 0; s < S; s++)
+    {
+        cache->sets[s] = malloc(E * sizeof(cache_line));
+        if (cache->sets[s] == NULL)
+            return NULL;
+    }
+
     // init contents of cache
+    cache->S = S;
+    cache->E = E;
+    cache->B = 1 << b;
+    cache->num_hits = 0;
+    cache->num_misses = 0;
+    cache->num_evictions = 0;
     for (int i = 0; i < S; i++)
     {
         for (int j = 0; j < E; j++)
         {
-            cache[i][j].valid = false;
-            cache[i][j].tag = 0;
-            cache[i][j].counter = 0;
+            cache->sets[i][j].valid = false;
+            cache->sets[i][j].tag = 0;
+            cache->sets[i][j].counter = 0;
         }
     }
     return cache;
 }
 
-void cache_del(int S, cache_line **cache)
+void cache_del(Cache *cache)
 {
-    for (int s = 0; s < S; s++)
+    for (int s = 0; s < cache->S; s++)
     {
-        free(cache[s]);
+        free(cache->sets[s]);
     }
+    free(cache->sets);
     free(cache);
+}
+
+void access_cache(unsigned long tag, unsigned long set_idx, unsigned long block_offset, int size, unsigned long global_counter, Cache *cache)
+{
+    cache_line *set = cache->sets[set_idx];
+
+    for (int i = 0; i < cache->E; i++)
+    {
+        // only valid and tag matches: hit
+        if (set[i].valid == true && set[i].tag == tag)
+        {
+            cache->num_hits++;
+            // update counter
+            set[i].counter = global_counter;
+            return;
+        }
+    }
+
+    // no hit, miss ++
+    cache->num_misses++;
+    int oldest_counter = global_counter;
+
+    // check if eviction and find the smallest counter (oldest)
+    for (int i = 0; i < cache->E; i++)
+    {
+        if (set[i].valid == false)
+        {
+            // update valid, tag and counter
+            set[i].valid = true;
+            set[i].tag = tag;
+            set[i].counter = global_counter;
+            return;
+        }
+        else
+        {
+            if (set[i].counter < oldest_counter)
+            {
+                oldest_counter = set[i].counter;
+            }
+        }
+    }
+
+    // need eviction
+    cache->num_evictions++;
+    for (int i = 0; i < cache->E; i++)
+    {
+        if (set[i].counter == oldest_counter)
+        {
+            set[i].tag = tag;
+            set[i].counter = global_counter;
+        }
+    }
 }
