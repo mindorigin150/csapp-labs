@@ -1,6 +1,8 @@
-/*
-Takes a valgrind memory traces as input, simulates hit/miss beharior of a cache memory on this trace, and outputs the total number of hits, misses, and evictions
-*/
+/**
+ * cachelab.c - A cache simulator that takes memory traces as input,
+ * simulates the hit/miss behavior of a cache memory, and outputs the total
+ * number of hits, misses and evictions.
+ */
 
 #include "cachelab.h"
 #include <getopt.h>
@@ -9,62 +11,68 @@ Takes a valgrind memory traces as input, simulates hit/miss beharior of a cache 
 #include <stdbool.h>
 #include <string.h>
 
+/**
+ * @brief Represents a single line within a cache set.
+ */
 typedef struct
 {
-    bool valid;
-    long tag;
-    long counter;
+    bool valid;   /**< Valid bit: true if the line contains cached data */
+    long tag;     /**< Tag bits to identify the memory block */
+    long counter; /**< LRU counter: stores the timestamp of the last access */
 } cache_line;
 
+/**
+ * @brief Represents the entire cache structure.
+ */
 typedef struct
 {
-    cache_line **sets;
-    int S;
-    int E;
-    int B; // # bytes / block
-    int num_hits;
-    int num_misses;
-    int num_evictions;
+    cache_line **sets; /**< 2D array of cache lines [S][E] */
+    int S;             /**< Number of sets (S = 2^s) */
+    int E;             /**< Associativity (number of lines per set) */
+    int B;             /**< Block size in bytes (B = 2^b) */
+    int num_hits;      /**< Total number of cache hits */
+    int num_misses;    /**< Total number of cache misses */
+    int num_evictions; /**< Total number of cache evictions */
 } Cache;
 
-/*
-Use this function to init cache
-return NULL if allocation fails.
-*/
+/**
+ * @brief Initializes the cache simulator by allocating memory.
+ * @param S Number of sets.
+ * @param E Number of lines per set.
+ * @param b Number of block bits.
+ * @return Pointer to the initialized Cache, or NULL if allocation fails.
+ */
 Cache *cache_init(int S, int E, int b);
-/*
-Use this function to delet cache.
-*/
+
+/**
+ * @brief Frees all memory associated with the cache.
+ * @param cache Pointer to the cache to be deleted.
+ */
 void cache_del(Cache *cache);
+
 /**
- * Load from cache.
- * There are 3 possibilities:
- * - 1 hit
- * - 1 miss, 0 eviction
- * - 1 miss, 1 eviction
- */
-void load_cache(unsigned long tag, unsigned long set_idx, unsigned long block_offset, int size, unsigned long global_counter, Cache *cache); // TODO
-/**
- * Store into cache.
- * There are 3 possibilities:
- * - 1 hit
- * - 1 miss, 0 eviction
- * - 1 miss, 1 eviction
- */
-void store_cache(unsigned long tag, unsigned long set_idx, unsigned long block_offset, int size, unsigned long global_counter, Cache *cache); // TODO
-/**
- * Modify cache.
- * 1 load + 1 store, but after loadting, the store operation must hit.
- * There are 3 possibilities:
- * - 2 hit
- * - 1 miss, 0 eviction, 1 hit
- * - 1 miss, 1 eviction, 1 hit
- */
-void modify_cache(unsigned long tag, unsigned long set_idx, unsigned long block_offset, int size, unsigned long global_counter, Cache *cache); // TODO
-/**
- * A simple access function
+ * @brief Core logic for cache access (Hit/Miss/Eviction).
+ * Since this lab doesn't require actual data movement, this function
+ * only updates the metadata and counters.
  */
 void access_cache(unsigned long tag, unsigned long set_idx, unsigned long block_offset, int size, unsigned long global_counter, Cache *cache);
+
+/**
+ * @brief Wrapper for Data Load operation.
+ */
+void load_cache(unsigned long tag, unsigned long set_idx, unsigned long block_offset, int size, unsigned long global_counter, Cache *cache);
+
+/**
+ * @brief Wrapper for Data Store operation.
+ */
+void store_cache(unsigned long tag, unsigned long set_idx, unsigned long block_offset, int size, unsigned long global_counter, Cache *cache);
+
+/**
+ * @brief Wrapper for Data Modify operation (Load + Store).
+ * A modify operation always results in at least one access, and the
+ * subsequent store is guaranteed to be a hit.
+ */
+void modify_cache(unsigned long tag, unsigned long set_idx, unsigned long block_offset, int size, unsigned long global_counter, Cache *cache);
 
 int main(int argc, char *argv[])
 {
@@ -72,6 +80,7 @@ int main(int argc, char *argv[])
     int s, E, b;
     char *t;
 
+    // Parse command line arguments using getopt
     while (-1 != (opt = getopt(argc, argv, "s:E:b:t:")))
     {
         switch (opt)
@@ -88,13 +97,13 @@ int main(int argc, char *argv[])
         case 't':
             t = optarg;
         default:
-            printf("Wrong argument\n");
+            printf("Usage: ./csim -s <s> -E <E> -b <b> -t <tracefile>\n");
             break;
         }
     }
 
-    // Allocate cache memory
-    int S = 1 << s; // S = 2^s
+    // Initialize cache structure
+    int S = 1 << s;
     Cache *cache = cache_init(S, E, b);
 
     // Open the file
@@ -124,21 +133,17 @@ int main(int argc, char *argv[])
 
         if (identifier == 'L')
         {
-            access_cache(tag, set_idx, block_offset, size, global_counter, cache);
+            load_cache(tag, set_idx, block_offset, size, global_counter, cache);
         }
         else if (identifier == 'S')
         {
-            access_cache(tag, set_idx, block_offset, size, global_counter, cache);
+            store_cache(tag, set_idx, block_offset, size, global_counter, cache);
         }
         else if (identifier == 'M')
         {
-            access_cache(tag, set_idx, block_offset, size, global_counter, cache);
-            access_cache(tag, set_idx, block_offset, size, global_counter, cache);
+            modify_cache(tag, set_idx, block_offset, size, global_counter, cache);
         }
-        else
-        {
-            fprintf(stderr, "Error: invalid identifier: %c\n", identifier);
-        }
+        // Note: 'I' (Instruction load) is ignored per lab instructions
 
         global_counter++;
     }
@@ -203,6 +208,7 @@ void access_cache(unsigned long tag, unsigned long set_idx, unsigned long block_
 {
     cache_line *set = cache->sets[set_idx];
 
+    // 1. Search for a Cache Hit
     for (int i = 0; i < cache->E; i++)
     {
         // only valid and tag matches: hit
@@ -215,11 +221,11 @@ void access_cache(unsigned long tag, unsigned long set_idx, unsigned long block_
         }
     }
 
-    // no hit, miss ++
+    // 2. Cache Miss occurred
     cache->num_misses++;
     int oldest_counter = global_counter;
 
-    // check if eviction and find the smallest counter (oldest)
+    // 3. Search for an empty line (Cold Miss)
     for (int i = 0; i < cache->E; i++)
     {
         if (set[i].valid == false)
@@ -239,7 +245,7 @@ void access_cache(unsigned long tag, unsigned long set_idx, unsigned long block_
         }
     }
 
-    // need eviction
+    // 4. Cache Eviction required (Conflict/Capacity Miss)
     cache->num_evictions++;
     for (int i = 0; i < cache->E; i++)
     {
@@ -249,4 +255,20 @@ void access_cache(unsigned long tag, unsigned long set_idx, unsigned long block_
             set[i].counter = global_counter;
         }
     }
+}
+
+void load_cache(unsigned long tag, unsigned long set_idx, unsigned long block_offset, int size, unsigned long global_counter, Cache *cache)
+{
+    access_cache(tag, set_idx, block_offset, size, global_counter, cache);
+}
+
+void store_cache(unsigned long tag, unsigned long set_idx, unsigned long block_offset, int size, unsigned long global_counter, Cache *cache)
+{
+    access_cache(tag, set_idx, block_offset, size, global_counter, cache);
+}
+
+void modify_cache(unsigned long tag, unsigned long set_idx, unsigned long block_offset, int size, unsigned long global_counter, Cache *cache)
+{
+    load_cache(tag, set_idx, block_offset, size, global_counter, cache);
+    store_cache(tag, set_idx, block_offset, size, global_counter, cache);
 }
