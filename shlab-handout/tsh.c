@@ -242,6 +242,23 @@ int parseline(const char *cmdline, char **argv)
  */
 int builtin_cmd(char **argv)
 {
+    if (strcmp(argv[0], "quit") == 0)
+    {
+        // quit this shell
+        exit(0);
+    }
+    if (strcmp(argv[0], "jobs") == 0)
+    {
+        // list all jobs
+        listjobs(jobs);
+        return 1;
+    }
+    if (strcmp(argv[0], "fg") == 0 || strcmp(argv[0], "bg") == 0)
+    {
+        // use do_bgfg function
+        do_bgfg(argv);
+        return 1;
+    }
     return 0; /* not a builtin command */
 }
 
@@ -303,7 +320,6 @@ void do_bgfg(char **argv)
     kill(-(job->pid), SIGCONT);
     if (strcmp(argv[0], "bg") == 0)
     {
-
         // 2. returns it to background
         job->state = BG;
         // [jid] (pid) cmdline
