@@ -323,6 +323,20 @@ void do_bgfg(char **argv)
  */
 void waitfg(pid_t pid)
 {
+    // prepare an empty signal set
+    sigset_t mask_empty;
+    sigemptyset(&mask_empty);
+
+    // loop check, if pid is still fg job
+    while (pid == fgpid(jobs))
+    {
+        // atomic wait
+        // 1. unblock SIGCHILD temporarily
+        // 2. hang for signal
+        // 3. receive signal, execute handler
+        // 4. handler return and recover the initial status
+        sigsuspend(&mask_empty);
+    }
     return;
 }
 
