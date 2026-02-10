@@ -407,6 +407,45 @@ void waitfg(pid_t pid)
  */
 void sigchld_handler(int sig)
 {
+    // IMPORTANT: save old errno!!!
+    int old_errno = errno;
+
+    pid_t pid;
+    int status;
+    // pid_t waitpid(pid_t pid, int *status, int options)
+    // pid == -1 -> waiting for any process
+    // options == WNOHANG -> unblocked, returns immediately if no zombie
+    while ((pid = waitpid(-1, &status, WNOHANG)) > 0)
+    {
+        if (WIFEXITED(status))
+        {
+            // delete this process from jobs
+            deletejob(jobs, pid);
+        }
+        else if (WIFSIGNALED(status))
+        {
+            struct job_t *job = getjobpid(jobs, pid);
+            if (job != NULL)
+            {
+                printf("Job [%d] (%d) terminated by signal %d\n", job->jid, pid, sig);
+            }
+            // delete this process from jobs
+            deletejob(jobs, pid);
+        }
+        else if (WIFSTOPPED(status))
+        {
+            // change status of this job
+            struct job_t *job = getjobpid(jobs, pid);
+            if (job != NULL)
+            {
+                job->state = ST;
+                printf("Job [%d] (%d) stopped by signal %d\n", job->jid, pid, sig);
+            }
+        }
+    }
+
+    // restore errno
+    errno = old_errno;
     return;
 }
 
