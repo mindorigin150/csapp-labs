@@ -456,6 +456,16 @@ void sigchld_handler(int sig)
  */
 void sigint_handler(int sig)
 {
+    int old_errno = errno;
+    pid_t pid;
+    // IMPORTANT: check validation of the signal!
+    // send this signal to fg job
+    if ((pid = fgpid(jobs)) != 0)
+    {
+        // IMPORTANT: send sig to the whole process group!
+        kill(-pid, sig);
+    }
+    errno = old_errno;
     return;
 }
 
