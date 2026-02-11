@@ -197,7 +197,7 @@ void eval(char *cmdline)
             // Child runs the job
             if (execve(argv[0], argv, environ) < 0)
             {
-                printf("%s: Command not found.\n", argv[0]);
+                printf("%s: Command not found\n", argv[0]);
                 exit(0);
             }
         }
@@ -323,7 +323,7 @@ void do_bgfg(char **argv)
     // sanity check
     if (id_str == NULL)
     {
-        printf("%s command requires PID of %%jobid argument\n", argv[0]);
+        printf("%s command requires PID or %%jobid argument\n", argv[0]);
         return;
     }
 
@@ -427,7 +427,9 @@ void sigchld_handler(int sig)
     // pid_t waitpid(pid_t pid, int *status, int options)
     // pid == -1 -> waiting for any process
     // options == WNOHANG -> unblocked, returns immediately if no zombie
-    while ((pid = waitpid(-1, &status, WNOHANG)) > 0)
+    // NOTE that waitpid simply collects information!!!
+    // state of child process changes -> waitpid: which process (pid), what happened (status)
+    while ((pid = waitpid(-1, &status, WNOHANG | WUNTRACED)) > 0)
     {
         if (WIFEXITED(status))
         {
@@ -439,7 +441,8 @@ void sigchld_handler(int sig)
             struct job_t *job = getjobpid(jobs, pid);
             if (job != NULL)
             {
-                printf("Job [%d] (%d) terminated by signal %d\n", job->jid, pid, sig);
+                // Use WTERMSIG(status) to extract specific signal that terminates it
+                printf("Job [%d] (%d) terminated by signal %d\n", job->jid, pid, WTERMSIG(status));
             }
             // delete this process from jobs
             deletejob(jobs, pid);
@@ -451,7 +454,8 @@ void sigchld_handler(int sig)
             if (job != NULL)
             {
                 job->state = ST;
-                printf("Job [%d] (%d) stopped by signal %d\n", job->jid, pid, sig);
+                // Use WSTOPSIG(status) to extract specific signal that stopped it
+                printf("Job [%d] (%d) stopped by signal %d\n", job->jid, pid, WSTOPSIG(status));
             }
         }
     }
