@@ -476,6 +476,13 @@ void sigint_handler(int sig)
  */
 void sigtstp_handler(int sig)
 {
+    int old_errno = errno;
+    pid_t pid;
+    if ((pid = fgpid(jobs)) != 0)
+    {
+        kill(-pid, sig);
+    }
+    errno = old_errno;
     return;
 }
 
