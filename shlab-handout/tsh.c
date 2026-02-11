@@ -174,6 +174,9 @@ void eval(char *cmdline)
     char buf[MAXLINE];   // Holds modified command line
     int bg;              // Should the job run in bg or fg?
     pid_t pid;           // Process id
+    sigset_t mask;       // prepare an empty signal set
+    sigemptyset(&mask);
+    sigaddset(&mask, SIGCHLD);
 
     strcpy(buf, cmdline);
     bg = parseline(buf, argv);
@@ -184,8 +187,13 @@ void eval(char *cmdline)
 
     if (!builtin_cmd(argv))
     {
+        // IMPORTANT: block SIGCHLD!!
+        sigprocmask(SIG_BLOCK, &mask, NULL);
         if ((pid = fork()) == 0)
         {
+            // unblock in child process
+            sigprocmask(SIG_UNBLOCK, &mask, NULL);
+            setpgid(0, 0);
             // Child runs the job
             if (execve(argv[0], argv, environ) < 0)
             {
@@ -194,18 +202,22 @@ void eval(char *cmdline)
             }
         }
 
+        // add this job to job list
+        int state = bg ? BG : FG;
+        addjob(jobs, pid, state, buf);
+
+        // unblock
+        sigprocmask(SIG_UNBLOCK, &mask, NULL);
+
         // Parent waits for foreground job to terminate
         if (!bg)
         {
-            int status;
-            if (waitpid(pid, &status, 0) < 0)
-            {
-                unix_error("waitfg: waitpid error");
-            }
+            waitfg(pid);
         }
         else
         {
-            printf("%d %s", pid, buf);
+            struct job_t *job = getjobpid(jobs, pid);
+            printf("[%d] (%d) %s", job->jid, pid, buf);
         }
     }
     return;
