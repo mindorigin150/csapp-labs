@@ -66,11 +66,23 @@ team_t team = {
 #define GET_PTR(p) (*(char **)(p))
 #define PUT_PTR(p, ptr) (*(char **)(p) = (ptr))
 
+#define SEGNUM 6
+
 // heap list pointer
 static char *heap_listp = 0;
 
-// explicit list
-static char *free_listp = 0;
+// segreagted list
+// seg_list[0]: < 2^5 = 32
+// seg_list[1]: < 2^6 = 64
+// seg_list[2]: < 2^7 = 128
+// seg_list[3]: >= 128
+static char *seg_list[SEGNUM];
+
+/* Function prototypes for internal helper routines */
+static void *extend_heap(size_t size);
+static void *coalesce(void *bp);
+static void place(void *bp, size_t size);
+static int get_seg_index(size_t size);
 
 /*
  * remove_from_freelist - Removes a block from the free list
@@ -78,6 +90,9 @@ static char *free_listp = 0;
  */
 static inline void remove_from_freelist(void *bp)
 {
+    size_t size = GET_SIZE(HDPR(bp));
+    int index = get_seg_index(size);
+
     void *prev_free = GET_PTR(PREVFREE(bp));
     void *next_free = GET_PTR(NEXTFREE(bp));
 
@@ -87,7 +102,7 @@ static inline void remove_from_freelist(void *bp)
     }
     else
     {
-        free_listp = next_free;
+        seg_list[index] = next_free;
     }
 
     if (next_free != NULL)
@@ -98,13 +113,17 @@ static inline void remove_from_freelist(void *bp)
 
 static inline void insert_free_block(void *bp)
 {
-    PUT_PTR(NEXTFREE(bp), free_listp);
+    size_t size = GET_SIZE(HDPR(bp));
+    int index = get_seg_index(size);
+    void *search_ptr = seg_list[index];
+
+    PUT_PTR(NEXTFREE(bp), search_ptr);
     PUT_PTR(PREVFREE(bp), NULL);
-    if (free_listp != NULL)
+    if (search_ptr != NULL)
     {
-        PUT(PREVFREE(free_listp), bp);
+        PUT(PREVFREE(search_ptr), bp);
     }
-    free_listp = bp;
+    seg_list[index] = bp;
 }
 
 /*
@@ -112,7 +131,10 @@ static inline void insert_free_block(void *bp)
  */
 int mm_init(void)
 {
-    free_listp = NULL;
+    for (int i = 0; i < SEGNUM; i++)
+    {
+        seg_list[i] = NULL;
+    }
     if ((heap_listp = mem_sbrk(4 * WSIZE)) == (void *)-1)
     {
         // If allocation fails
@@ -143,7 +165,7 @@ int mm_init(void)
 void *mm_malloc(size_t size)
 {
     size_t asize; // Adjusted block size
-    char *ptr = free_listp;
+    char *ptr;
 
     if (size == 0)
     {
@@ -158,16 +180,23 @@ void *mm_malloc(size_t size)
             asize = 6 * WSIZE;
     }
 
-    while (ptr != NULL)
+    int index = get_seg_index(asize);
+
+    // Starting from most fit bucket, if not found, go to bigger bucket
+    for (int i = index; i < SEGNUM; i++)
     {
-        // 1. unallocated 2. big enough
-        if (GET_SIZE(HDPR(ptr)) >= asize)
+        ptr = seg_list[i];
+        while (ptr != NULL)
         {
-            place(ptr, asize);
-            return ptr;
+            if (GET_SIZE(HDPR(ptr)) >= asize)
+            {
+                place(ptr, asize);
+                return ptr;
+            }
+            ptr = GET_PTR(NEXTFREE(ptr));
         }
-        ptr = GET(NEXTFREE(ptr));
     }
+
     // Else, extend_heap
     if ((ptr = extend_heap(asize)) == NULL)
     {
@@ -238,7 +267,7 @@ void *mm_realloc(void *ptr, size_t size)
         {
             return NULL;
         }
-        mempcpy(newptr, ptr, oldsize - 2 * WSIZE);
+        memcpy(newptr, ptr, oldsize - 2 * WSIZE);
         mm_free(ptr);
         return newptr;
     }
@@ -341,5 +370,33 @@ void place(void *bp, size_t size)
 
         // Insert the remaining free block back to free list
         insert_free_block(next_bp);
+    }
+}
+
+int get_seg_index(size_t size)
+{
+    if (size <= (1 << 5))
+    {
+        return 0;
+    }
+    else if (size <= (1 << 6))
+    {
+        return 1;
+    }
+    else if (size <= (1 << 7))
+    {
+        return 2;
+    }
+    else if (size <= (1 << 8))
+    {
+        return 3;
+    }
+    else if (size <= (1 << 9))
+    {
+        return 4;
+    }
+    else
+    {
+        return 5;
     }
 }

@@ -5,15 +5,6 @@ extern void *mm_malloc(size_t size);
 extern void mm_free(void *ptr);
 extern void *mm_realloc(void *ptr, size_t size);
 
-// private helper function
-extern void *extend_heap(size_t size);
-
-// merge adjacent blocks
-extern void *coalesce(void *bp);
-
-// place free block, return given block address pointer
-extern void place(void *bp, size_t size);
-
 /*
  * Students work in teams of one or two.  Teams enter their team name,
  * personal names and login IDs in a struct of this
