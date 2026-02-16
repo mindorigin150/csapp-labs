@@ -60,15 +60,59 @@ team_t team = {
 #define NEXTBLKP(p) ((char *)(p) + GET_SIZE(HDPR(p)))
 // PREVBLKP: jump to the previous block pointer
 #define PREVBLKP(p) ((char *)(p) - GET_SIZE(HDPR(p) - WSIZE))
+#define NEXTFREE(p) ((char *)(p) + WSIZE)
+#define PREVFREE(p) ((char *)(p))
+// For pointer read
+#define GET_PTR(p) (*(char **)(p))
+#define PUT_PTR(p, ptr) (*(char **)(p) = (ptr))
 
 // heap list pointer
 static char *heap_listp = 0;
+
+// explicit list
+static char *free_listp = 0;
+
+/*
+ * remove_from_freelist - Removes a block from the free list
+ * bp: Address of the block to be removed
+ */
+static inline void remove_from_freelist(void *bp)
+{
+    void *prev_free = GET_PTR(PREVFREE(bp));
+    void *next_free = GET_PTR(NEXTFREE(bp));
+
+    if (prev_free != NULL)
+    {
+        PUT_PTR(NEXTFREE(prev_free), next_free);
+    }
+    else
+    {
+        free_listp = next_free;
+    }
+
+    if (next_free != NULL)
+    {
+        PUT_PTR(PREVFREE(next_free), prev_free);
+    }
+}
+
+static inline void insert_free_block(void *bp)
+{
+    PUT_PTR(NEXTFREE(bp), free_listp);
+    PUT_PTR(PREVFREE(bp), NULL);
+    if (free_listp != NULL)
+    {
+        PUT(PREVFREE(free_listp), bp);
+    }
+    free_listp = bp;
+}
 
 /*
  * mm_init - initialize the malloc package.
  */
 int mm_init(void)
 {
+    free_listp = NULL;
     if ((heap_listp = mem_sbrk(4 * WSIZE)) == (void *)-1)
     {
         // If allocation fails
@@ -99,7 +143,7 @@ int mm_init(void)
 void *mm_malloc(size_t size)
 {
     size_t asize; // Adjusted block size
-    char *ptr = heap_listp;
+    char *ptr = free_listp;
 
     if (size == 0)
     {
@@ -109,20 +153,20 @@ void *mm_malloc(size_t size)
     {
         // Adjust block size to include overhead and alignment
         asize = ALIGN(size + 2 * WSIZE);
-        // Minimum block size is 4 * WSIZE (header + footer + min payload)
-        if (asize < 4 * WSIZE)
-            asize = 4 * WSIZE;
+        // Minimum block size is 6 * WSIZE (header + footer + min payload)
+        if (asize < 6 * WSIZE)
+            asize = 6 * WSIZE;
     }
 
-    while (GET_SIZE(HDPR(ptr)) > 0)
+    while (ptr != NULL)
     {
         // 1. unallocated 2. big enough
-        if (!GET_ALLOC(HDPR(ptr)) && GET_SIZE(HDPR(ptr)) >= asize)
+        if (GET_SIZE(HDPR(ptr)) >= asize)
         {
             place(ptr, asize);
             return ptr;
         }
-        ptr = NEXTBLKP(ptr);
+        ptr = GET(NEXTFREE(ptr));
     }
     // Else, extend_heap
     if ((ptr = extend_heap(asize)) == NULL)
@@ -144,6 +188,8 @@ void mm_free(void *ptr)
 
     PUT(HDPR(ptr), PACK(size, 0));
     PUT(FTPR(ptr), PACK(size, 0));
+    PUT(PREVFREE(ptr), NULL);
+    PUT(NEXTFREE(ptr), NULL);
     // merge it when freeing
     coalesce(ptr);
 }
@@ -202,19 +248,22 @@ void *extend_heap(size_t size)
 void *coalesce(void *bp)
 {
     // Get status of adjacent blocks
-    size_t prev_alloc = GET_ALLOC(HDPR(PREVBLKP(bp)));
+    // Read prev block's footer directly to avoid accessing invalid memory
+    size_t prev_alloc = GET_ALLOC((char *)(bp)-2 * WSIZE);
     size_t next_alloc = GET_ALLOC(HDPR(NEXTBLKP(bp)));
     size_t size = GET_SIZE(HDPR(bp));
 
     // case 1: both next and prev have been allocated
     if (prev_alloc && next_alloc)
     {
+        insert_free_block(bp);
         return bp;
     }
 
     // case 2: prev allocated, next free -> merge next
     else if (prev_alloc && !next_alloc)
     {
+        remove_from_freelist(NEXTBLKP(bp));
         size += GET_SIZE(HDPR(NEXTBLKP(bp)));
         PUT(HDPR(bp), PACK(size, 0));
         PUT(FTPR(bp), PACK(size, 0));
@@ -223,6 +272,7 @@ void *coalesce(void *bp)
     // case 3: prev free, next allocated -> merge prev
     else if (!prev_alloc && next_alloc)
     {
+        remove_from_freelist(PREVBLKP(bp));
         size += GET_SIZE(HDPR(PREVBLKP(bp)));
         bp = PREVBLKP(bp);
         PUT(HDPR(bp), PACK(size, 0));
@@ -232,6 +282,8 @@ void *coalesce(void *bp)
     // case 4: both are free
     else
     {
+        remove_from_freelist(NEXTBLKP(bp));
+        remove_from_freelist(PREVBLKP(bp));
         size += GET_SIZE(HDPR(PREVBLKP(bp)));
         size += GET_SIZE(HDPR(NEXTBLKP(bp)));
         bp = PREVBLKP(bp);
@@ -239,29 +291,35 @@ void *coalesce(void *bp)
         PUT(FTPR(bp), PACK(size, 0));
     }
 
+    insert_free_block(bp);
     return bp;
 }
 
 void place(void *bp, size_t size)
 {
-    // only when left block size >= min block size then split
-    // else give all the block to user
     size_t current_size = GET_SIZE(HDPR(bp));
-    size_t min_block_size = 4 * WSIZE;
+    size_t min_block_size = 6 * WSIZE;
+
+    // Remove from free list first
+    remove_from_freelist(bp);
 
     if (current_size - size < min_block_size)
     {
-        // return all this block
+        // Return all this block
         PUT(HDPR(bp), PACK(current_size, 1));
         PUT(FTPR(bp), PACK(current_size, 1));
     }
     else
     {
-        // split
+        // Split: allocate first part, keep second part free
         PUT(HDPR(bp), PACK(size, 1));
         PUT(FTPR(bp), PACK(size, 1));
-        bp = NEXTBLKP(bp);
-        PUT(HDPR(bp), PACK(current_size - size, 0));
-        PUT(FTPR(bp), PACK(current_size - size, 0));
+
+        void *next_bp = NEXTBLKP(bp);
+        PUT(HDPR(next_bp), PACK(current_size - size, 0));
+        PUT(FTPR(next_bp), PACK(current_size - size, 0));
+
+        // Insert the remaining free block back to free list
+        insert_free_block(next_bp);
     }
 }
