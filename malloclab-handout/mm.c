@@ -157,10 +157,20 @@ void *mm_realloc(void *ptr, size_t size)
     void *newptr;
     size_t copySize;
 
+    if (ptr == NULL)
+        return mm_malloc(size);
+    if (size == 0)
+    {
+        mm_free(ptr);
+        return NULL;
+    }
+
     newptr = mm_malloc(size);
     if (newptr == NULL)
         return NULL;
-    copySize = *(size_t *)((char *)oldptr - SIZE_T_SIZE);
+
+    // Get old block size from header (excluding header/footer overhead)
+    copySize = GET_SIZE(HDPR(oldptr)) - 2 * WSIZE;
     if (size < copySize)
         copySize = size;
     memcpy(newptr, oldptr, copySize);
