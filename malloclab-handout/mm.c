@@ -199,29 +199,49 @@ void mm_free(void *ptr)
  */
 void *mm_realloc(void *ptr, size_t size)
 {
-    void *oldptr = ptr;
-    void *newptr;
-    size_t copySize;
-
+    // 1. If original pointer is NULL
     if (ptr == NULL)
+    {
         return mm_malloc(size);
+    }
+    // 2. If new size is 0
     if (size == 0)
     {
-        mm_free(ptr);
         return NULL;
     }
 
-    newptr = mm_malloc(size);
-    if (newptr == NULL)
-        return NULL;
+    size_t oldsize = GET_SIZE(HDPR(ptr));
+    size_t newsize = ALIGN(size + 2 * WSIZE);
+    void *next_blk = NEXTBLKP(ptr);
+    size_t next_size = GET_SIZE(HDPR(next_blk));
 
-    // Get old block size from header (excluding header/footer overhead)
-    copySize = GET_SIZE(HDPR(oldptr)) - 2 * WSIZE;
-    if (size < copySize)
-        copySize = size;
-    memcpy(newptr, oldptr, copySize);
-    mm_free(oldptr);
-    return newptr;
+    // 1. If newsize < oldsize, place directly;
+    if (newsize <= oldsize)
+    {
+        return ptr;
+    }
+    // 2. If newsize > oldsize, and there is space available nearby
+    else if (!GET_ALLOC(HDPR(next_blk)) && next_size >= newsize - oldsize)
+    {
+        remove_from_freelist(next_blk);
+
+        PUT(HDPR(ptr), PACK(oldsize + next_size, 1));
+        PUT(FTPR(ptr), PACK(oldsize + next_size, 1));
+
+        return ptr;
+    }
+    // 3. malloc + copy + free
+    else
+    {
+        void *newptr = mm_malloc(size);
+        if (newptr == NULL)
+        {
+            return NULL;
+        }
+        mempcpy(newptr, ptr, oldsize - 2 * WSIZE);
+        mm_free(ptr);
+        return newptr;
+    }
 }
 
 void *extend_heap(size_t size)
