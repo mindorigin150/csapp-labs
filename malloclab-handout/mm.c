@@ -66,7 +66,7 @@ team_t team = {
 #define GET_PTR(p) (*(char **)(p))
 #define PUT_PTR(p, ptr) (*(char **)(p) = (ptr))
 
-#define SEGNUM 6
+#define SEGNUM 16
 
 // heap list pointer
 static char *heap_listp = 0;
@@ -375,28 +375,13 @@ void place(void *bp, size_t size)
 
 int get_seg_index(size_t size)
 {
-    if (size <= (1 << 5))
-    {
+    if (size <= 32)
         return 0;
-    }
-    else if (size <= (1 << 6))
-    {
-        return 1;
-    }
-    else if (size <= (1 << 7))
-    {
-        return 2;
-    }
-    else if (size <= (1 << 8))
-    {
-        return 3;
-    }
-    else if (size <= (1 << 9))
-    {
-        return 4;
-    }
-    else
-    {
-        return 5;
-    }
+    int index = 31 - __builtin_clz((unsigned int)size) - 5;
+    if (index < 0)
+        index = 0;
+    if (index >= SEGNUM)
+        index = SEGNUM - 1;
+
+    return index;
 }
