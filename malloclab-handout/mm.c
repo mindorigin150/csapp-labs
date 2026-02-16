@@ -176,8 +176,8 @@ void *mm_malloc(size_t size)
         // Adjust block size to include overhead and alignment
         asize = ALIGN(size + 2 * WSIZE);
         // Minimum block size is 6 * WSIZE (header + footer + min payload)
-        if (asize < 6 * WSIZE)
-            asize = 6 * WSIZE;
+        if (asize < 4 * WSIZE)
+            asize = 4 * WSIZE;
     }
 
     int index = get_seg_index(asize);
@@ -243,6 +243,9 @@ void *mm_realloc(void *ptr, size_t size)
     size_t newsize = ALIGN(size + 2 * WSIZE);
     void *next_blk = NEXTBLKP(ptr);
     size_t next_size = GET_SIZE(HDPR(next_blk));
+    void *prev_blk = PREVBLKP(ptr);
+    size_t prev_size = GET_SIZE(HDPR(prev_blk));
+    int prev_alloc = GET_ALLOC(HDPR(prev_blk));
 
     // 1. If newsize < oldsize, place directly;
     if (newsize <= oldsize)
@@ -259,6 +262,21 @@ void *mm_realloc(void *ptr, size_t size)
 
         return ptr;
     }
+    // 3. there is space available ahead
+    // Case 2: 向前合并 (新增)
+    // 注意：如果前一块是空闲的，且 前+中 足够大
+    else if (!prev_alloc && (oldsize + prev_size >= newsize))
+    {
+        remove_from_freelist(prev_blk);
+        void *newptr = prev_blk;
+        // 移动数据：因为地址重叠，必须用 memmove 而不是 memcpy
+        memmove(newptr, ptr, oldsize - 2 * WSIZE);
+        PUT(HDPR(newptr), PACK(oldsize + prev_size, 1));
+        PUT(FTPR(newptr), PACK(oldsize + prev_size, 1));
+        // TODO: 同样，如果剩余空间很大，记得分割 (Split)
+        return newptr;
+    }
+
     // 3. malloc + copy + free
     else
     {
@@ -347,7 +365,7 @@ void *coalesce(void *bp)
 void place(void *bp, size_t size)
 {
     size_t current_size = GET_SIZE(HDPR(bp));
-    size_t min_block_size = 6 * WSIZE;
+    size_t min_block_size = 4 * WSIZE;
 
     // Remove from free list first
     remove_from_freelist(bp);
