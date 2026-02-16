@@ -66,7 +66,7 @@ team_t team = {
 #define GET_PTR(p) (*(char **)(p))
 #define PUT_PTR(p, ptr) (*(char **)(p) = (ptr))
 
-#define SEGNUM 16
+#define SEGNUM 20
 
 // heap list pointer
 static char *heap_listp = 0;
@@ -186,14 +186,28 @@ void *mm_malloc(size_t size)
     for (int i = index; i < SEGNUM; i++)
     {
         ptr = seg_list[i];
+        void *best_fit = NULL;
+        size_t min_diff = (size_t)-1;
         while (ptr != NULL)
         {
-            if (GET_SIZE(HDPR(ptr)) >= asize)
+            size_t curr_size = GET_SIZE(HDPR(ptr));
+            if (curr_size >= asize)
             {
-                place(ptr, asize);
-                return ptr;
+                size_t diff = curr_size - asize;
+                if (diff < min_diff)
+                {
+                    min_diff = diff;
+                    best_fit = ptr;
+                    if (diff == 0)
+                        break; // 完美匹配，直接跳出
+                }
             }
             ptr = GET_PTR(NEXTFREE(ptr));
+        }
+        if (best_fit != NULL)
+        {
+            place(best_fit, asize);
+            return best_fit;
         }
     }
 
@@ -243,6 +257,7 @@ void *mm_realloc(void *ptr, size_t size)
     size_t newsize = ALIGN(size + 2 * WSIZE);
     void *next_blk = NEXTBLKP(ptr);
     size_t next_size = GET_SIZE(HDPR(next_blk));
+    int next_alloc = GET_ALLOC(HDPR(next_blk));
     void *prev_blk = PREVBLKP(ptr);
     size_t prev_size = GET_SIZE(HDPR(prev_blk));
     int prev_alloc = GET_ALLOC(HDPR(prev_blk));
@@ -277,7 +292,37 @@ void *mm_realloc(void *ptr, size_t size)
         return newptr;
     }
 
-    // 3. malloc + copy + free
+    // 4. Case 3: Extend to Both Prev and Next (New!)
+    else if (!prev_alloc && !next_alloc && (prev_size + oldsize + next_size >= newsize))
+    {
+        remove_from_freelist(prev_blk);
+        remove_from_freelist(next_blk);
+
+        void *newptr = prev_blk;
+        memmove(newptr, ptr, oldsize - 2 * WSIZE);
+
+        size_t total_size = prev_size + oldsize + next_size;
+
+        // 分割逻辑
+        if (total_size - newsize >= 4 * WSIZE)
+        {
+            PUT(HDPR(newptr), PACK(newsize, 1));
+            PUT(FTPR(newptr), PACK(newsize, 1));
+
+            void *new_free_blk = NEXTBLKP(newptr);
+            PUT(HDPR(new_free_blk), PACK(total_size - newsize, 0));
+            PUT(FTPR(new_free_blk), PACK(total_size - newsize, 0));
+            insert_free_block(new_free_blk);
+        }
+        else
+        {
+            PUT(HDPR(newptr), PACK(total_size, 1));
+            PUT(FTPR(newptr), PACK(total_size, 1));
+        }
+        return newptr;
+    }
+
+    // 5. malloc + copy + free
     else
     {
         void *newptr = mm_malloc(size);
@@ -393,13 +438,37 @@ void place(void *bp, size_t size)
 
 int get_seg_index(size_t size)
 {
-    if (size <= 32)
-        return 0;
-    int index = 31 - __builtin_clz((unsigned int)size) - 5;
-    if (index < 0)
-        index = 0;
+    // -----------------------------------------------------------
+    // 策略 1: 小块线性分桶 (Linear Bucketing for Small Blocks)
+    // 目标：让 16, 24, 32... 这些常见小块都有独立的桶，互不干扰
+    // -----------------------------------------------------------
+
+    // 这里的 64 是个阈值，你可以根据 trace 调整 (比如 96 或 128)
+    if (size <= 64)
+    {
+        // 原理：size 是 8 的倍数。
+        // size = 16 -> (16 >> 3) = 2 -> 2 - 2 = 0 (Index 0)
+        // size = 24 -> (24 >> 3) = 3 -> 3 - 2 = 1 (Index 1)
+        // size = 32 -> (32 >> 3) = 4 -> 4 - 2 = 2 (Index 2)
+        // ...
+        // size = 64 -> (64 >> 3) = 8 -> 8 - 2 = 6 (Index 6)
+        return (size >> 3) - 2;
+    }
+    // -----------------------------------------------------------
+    // 策略 2: 大块对数分桶 (Logarithmic Bucketing for Large Blocks)
+    // 目标：大块不需要分那么细，按 2 的幂次分桶即可
+    // -----------------------------------------------------------
+
+    // 计算 log2(size)
+    // size > 64，所以 31 - clz(size) 至少是 7 (因为 2^6 = 64, 2^7 = 128)
+    int index = 31 - __builtin_clz((unsigned int)size);
+
+    // 我们的小块桶用了 0 到 6，所以大块从 7 开始接上
+    // index = 7 (size 65-127) -> 对应 bucket 7
+    // index = 8 (size 128-255) -> 对应 bucket 8
+    // ...
+
     if (index >= SEGNUM)
         index = SEGNUM - 1;
-
     return index;
 }
